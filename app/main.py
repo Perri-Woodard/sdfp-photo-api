@@ -91,9 +91,8 @@ async def _file_upload(
         db: Session = Depends(get_db),
         credentials: HTTPBasicCredentials = Depends(security)
 ):
-    # correct_username = secrets.compare_digest(credentials.username, os.environ.get('username'))
-    correct_username = secrets.compare_digest(credentials.username, 'sunnyd_db_username')
-    correct_password = secrets.compare_digest(credentials.password, 'yt37T3n*H^K9utbw')
+    correct_username = secrets.compare_digest(credentials.username, os.environ.get('username'))
+    correct_password = secrets.compare_digest(credentials.password, os.environ.get('password'))
 
     if not (correct_username and correct_password):
         raise HTTPException(

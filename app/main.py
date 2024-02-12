@@ -56,10 +56,10 @@ app.mount("/public", StaticFiles(directory="/photo_storage"), name="photo_storag
 fp = open("/code/app/auth.json")
 json_secret = fp.read()
 fp.close()
-# json_secret = json.loads(os.environ.get('GOOGLE_JSON_KEY'))
-json_secret = json.loads(json_secret)
-# google_drive_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
-google_drive_folder_id = ''
+json_secret = json.loads(os.environ.get('GOOGLE_JSON_KEY'))
+# json_secret = json.loads(json_secret)
+google_drive_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
+# google_drive_folder_id = ''
 
 scope = ["https://www.googleapis.com/auth/drive"]
 

@@ -4,8 +4,9 @@ import exifread
 import json
 import secrets
 import arrow
+from PIL import Image, ExifTags
 
-from app import models, database, db_functions
+from app import models, database, db_functions, blurring_functions
 
 from googleapiclient.http import MediaFileUpload
 from starlette.staticfiles import StaticFiles
@@ -52,8 +53,13 @@ security = HTTPBasic()
 
 app.mount("/public", StaticFiles(directory="/photo_storage"), name="photo_storage")
 
-json_secret = json.loads(os.environ.get('GOOGLE_JSON_KEY'))
-google_drive_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
+fp = open("/code/app/auth.json")
+json_secret = fp.read()
+fp.close()
+# json_secret = json.loads(os.environ.get('GOOGLE_JSON_KEY'))
+json_secret = json.loads(json_secret)
+# google_drive_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
+google_drive_folder_id = ''
 
 scope = ["https://www.googleapis.com/auth/drive"]
 
@@ -85,8 +91,9 @@ async def _file_upload(
         db: Session = Depends(get_db),
         credentials: HTTPBasicCredentials = Depends(security)
 ):
-    correct_username = secrets.compare_digest(credentials.username, os.environ.get('username'))
-    correct_password = secrets.compare_digest(credentials.password, os.environ.get('password'))
+    # correct_username = secrets.compare_digest(credentials.username, os.environ.get('username'))
+    correct_username = secrets.compare_digest(credentials.username, 'sunnyd_db_username')
+    correct_password = secrets.compare_digest(credentials.password, 'yt37T3n*H^K9utbw')
 
     if not (correct_username and correct_password):
         raise HTTPException(
@@ -103,9 +110,19 @@ async def _file_upload(
         content = await file.read()
         myfile.write(content)
         myfile.close()
-
+    
+    # with open(original_pic_path, 'rb') as img_for_exif:
     img_for_exif = open(original_pic_path, 'rb')
     tags = exifread.process_file(img_for_exif)
+    # img_for_exif = Image.open(original_pic_path)
+    # tags = img_for_exif.getexif()
+    
+    for key, val in tags.items():
+        if key in ExifTags.TAGS:
+            print(f'{ExifTags.TAGS[key]}:{val}')
+
+    print(tags)
+    # return "TEST"
 
     datetime_string = [str(value) for key, value in tags.items() if 'DateTime' in key][0]
 
@@ -123,97 +140,101 @@ async def _file_upload(
         return "Error opening image. Unknown error"
 
     img.thumbnail(size=(1000, 750))
-    img.save("/photo_storage/" + camera_ID + ".jpg")
+    reduced_image_path = "/photo_storage/" + camera_ID + ".jpg"
+    img.save(reduced_image_path)
     img.close()
 
-    # Find the ID of the "Images" main folder so we can make a new
-    # folder for the camera_ID, if needed
-    images_folder_id = drive.files().list(
-        corpora="drive",
-        driveId=google_drive_folder_id,
-        includeItemsFromAllDrives=True,
-        supportsAllDrives=True,
-        q="name='Images' and mimeType='application/vnd.google-apps.folder'"
-    ).execute().get('files')[0].get('id')
+    # # Find the ID of the "Images" main folder so we can make a new
+    # # folder for the camera_ID, if needed
+    # images_folder_id = drive.files().list(
+    #     # corpora="drive",
+    #     # driveId=google_drive_folder_id,
+    #     includeItemsFromAllDrives=True,
+    #     supportsAllDrives=True,
+    #     q="name='Images' and mimeType='application/vnd.google-apps.folder'"
+    # ).execute().get('files')[0].get('id')
 
-    # Search for the camera's folder within
-    camera_image_folder_info = drive.files().list(
-        corpora="drive",
-        driveId=google_drive_folder_id,
-        includeItemsFromAllDrives=True,
-        supportsAllDrives=True,
-        q="name='" + camera_ID + "' and mimeType='application/vnd.google-apps.folder' and '" + images_folder_id + "' in parents and trashed = false"
-    ).execute().get('files', [])
+    # # Search for the camera's folder within
+    # camera_image_folder_info = drive.files().list(
+    #     # corpora="drive",
+    #     # driveId=google_drive_folder_id,
+    #     includeItemsFromAllDrives=True,
+    #     supportsAllDrives=True,
+    #     q="name='" + camera_ID + "' and mimeType='application/vnd.google-apps.folder' and '" + images_folder_id + "' in parents and trashed = false"
+    # ).execute().get('files', [])
 
-    # If the camera's folder exists, get the ID
-    if len(camera_image_folder_info) > 0:
-        camera_image_folder_id = camera_image_folder_info[0].get('id')
+    # # If the camera's folder exists, get the ID
+    # if len(camera_image_folder_info) > 0:
+    #     camera_image_folder_id = camera_image_folder_info[0].get('id')
 
-    # If the camera's folder does NOT exist, make it within the "Images" folder and get its ID
-    if len(camera_image_folder_info) == 0:
-        file_metadata = {
-            'name': camera_ID,
-            'mimeType': 'application/vnd.google-apps.folder',
-            'parents': [images_folder_id]
-        }
+    # # If the camera's folder does NOT exist, make it within the "Images" folder and get its ID
+    # if len(camera_image_folder_info) == 0:
+    #     file_metadata = {
+    #         'name': camera_ID,
+    #         'mimeType': 'application/vnd.google-apps.folder',
+    #         'parents': [images_folder_id]
+    #     }
 
-        file = drive.files().create(body=file_metadata,
-                                    supportsAllDrives=True).execute()
+    #     file = drive.files().create(body=file_metadata,
+    #                                 supportsAllDrives=True).execute()
 
-        camera_image_folder_id = file.get('id')
+    #     camera_image_folder_id = file.get('id')
 
-    # Within the camera's folder, see if there is a folder for the specific date of interest (date_label)
-    date_folder_info = drive.files().list(
-        corpora="drive",
-        driveId=google_drive_folder_id,
-        includeItemsFromAllDrives=True,
-        supportsAllDrives=True,
-        q="'" + camera_image_folder_id + "'" + " in parents and trashed = false and name='" + date_label + "' and mimeType='application/vnd.google-apps.folder'"
-    ).execute().get('files', [])
+    # print
+    # # Within the camera's folder, see if there is a folder for the specific date of interest (date_label)
+    # date_folder_info = drive.files().list(
+    #     # corpora="drive",
+    #     # driveId=google_drive_folder_id,
+    #     includeItemsFromAllDrives=True,
+    #     supportsAllDrives=True,
+    #     q="'" + camera_image_folder_id + "'" + " in parents and trashed = false and name='" + date_label + "' and mimeType='application/vnd.google-apps.folder'"
+    # ).execute().get('files', [])
 
-    # If there is a folder for the date within the camera's folder, get the ID
-    if len(date_folder_info) > 0:
-        date_folder_id = date_folder_info[0].get('id')
+    # # If there is a folder for the date within the camera's folder, get the ID
+    # if len(date_folder_info) > 0:
+    #     date_folder_id = date_folder_info[0].get('id')
 
-    # If there is NOT a folder for the date within the camera's folder, make one within that folder
-    if len(date_folder_info) == 0:
-        # make new folder for the date
+    # # If there is NOT a folder for the date within the camera's folder, make one within that folder
+    # if len(date_folder_info) == 0:
+    #     print("CREATING NEW FOLDER FOR DATE")
+    #     # make new folder for the date
 
-        file_metadata = {
-            'name': date_label,
-            'mimeType': 'application/vnd.google-apps.folder',
-            'parents': [camera_image_folder_id]
-        }
+    #     file_metadata = {
+    #         'name': date_label,
+    #         'mimeType': 'application/vnd.google-apps.folder',
+    #         'parents': [camera_image_folder_id]
+    #     }
 
-        file = drive.files().create(body=file_metadata,
-                                    supportsAllDrives=True).execute()
+    #     file = drive.files().create(body=file_metadata,
+    #                                 supportsAllDrives=True).execute()
 
-        date_folder_id = file.get('id')
+    #     date_folder_id = file.get('id')
 
-    picture_info = drive.files().list(
-        corpora="drive",
-        driveId=google_drive_folder_id,
-        includeItemsFromAllDrives=True,
-        supportsAllDrives=True,
-        q="'" + date_folder_id + "'" + " in parents and trashed = false and name='" + picture_label + "'"
-    ).execute().get('files', [])
+    # picture_info = drive.files().list(
+    #     # corpora="drive",
+    #     # driveId=google_drive_folder_id,
+    #     includeItemsFromAllDrives=True,
+    #     supportsAllDrives=True,
+    #     q="'" + date_folder_id + "'" + " in parents and trashed = false and name='" + picture_label + "'"
+    # ).execute().get('files', [])
 
-    if len(picture_info) > 0:
-        print("Picture already exists! Not overwriting")
+    # if len(picture_info) > 0:
+    #     print("Picture already exists! Not overwriting")
 
-    # If there is NOT a picture by that name, write one
-    if len(picture_info) == 0:
-        file_metadata = {
-            'name': [picture_label],
-            'parents': [date_folder_id]
-        }
-        media = MediaFileUpload(original_pic_path,
-                                mimetype='image/jpg',
-                                resumable=True)
+    # # If there is NOT a picture by that name, write one
+    # if len(picture_info) == 0:
+    #     file_metadata = {
+    #         'name': [picture_label],
+    #         'parents': [date_folder_id]
+    #     }
+    #     media = MediaFileUpload(original_pic_path,
+    #                             mimetype='image/jpg',
+    #                             resumable=True)
 
-        file = drive.files().create(body=file_metadata,
-                                    media_body=media,
-                                    supportsAllDrives=True).execute()
+    #     print("ATTEMPTING UPLOAD")
+    #     file = drive.files().create(body=file_metadata,
+    #                                 media_body=media,
+    #                                 supportsAllDrives=True).execute()
 
     db_functions.write_photo_info(
         db=db,
@@ -228,6 +249,7 @@ async def _file_upload(
         high_water=False
     )
 
+    blurring_functions.blur_image(camera_ID.replace("CAM_", ""), reduced_image_path)
     os.remove(original_pic_path)
 
     return {"SUCCESS!"}

@@ -1,6 +1,8 @@
-FROM python:3.10.4
+FROM python:3.10.5
 
 WORKDIR /code
+
+RUN apt-get update && apt-get install ffmpeg libsm6 libxext6  -y
 
 COPY requirements.txt /code/requirements.txt
 
